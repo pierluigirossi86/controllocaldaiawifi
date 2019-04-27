@@ -1,0 +1,135 @@
+#include "DHT.h"
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+
+#define DHTPIN 4     // pin for DHT22 (D2)
+const int R2  = 5;            // Output Relay (D1)
+#define DHTTYPE DHT22   // there are multiple kinds of DHT sensors
+//#define BLYNK_DEFAULT_PORT 8442
+DHT dht(DHTPIN, DHTTYPE);
+#define BLYNK_PRINT Serial    // Comment this out to disable prints and save space
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+char auth[] = "BLYNK AUTH CODE HERE";
+// Your WiFi credentials
+char ssid[] = "NAMEWIFI";
+char pass[] = "PWDHERE";
+IPAddress BlynkServerIP(139, 59, 206, 133); //Static IP of Blynk server
+IPAddress arduino_ip ( 192,  168,   ENTERVALUE,  ENTERVALUE);
+IPAddress dns_ip     (  8,   8,   8,   8); //Google DNS
+IPAddress gateway_ip ( 192,  168,   ENTERVALUE,   ENTERVALUE);
+IPAddress subnet_mask(255, 255, 255,   0);
+
+const String endpoint = "http://api.openweathermap.org/data/2.5/weather?q=Civitavecchia,IT&APPID="; //Example for endpoint, your city
+const String key = "YOUR OPENWEATHERMAP KEY HERE";
+const String metrica="&units=metric";
+
+WiFiClient client; 
+
+void setup() {
+  delay(5000);
+  Serial.begin(9600);
+  pinMode(R2,OUTPUT);
+  pinMode(DHTPIN, INPUT_PULLUP);
+
+  WiFi.config(arduino_ip, gateway_ip, subnet_mask);
+  WiFi.begin(ssid, pass);
+  Blynk.config(auth);
+  Serial.setTimeout(4000);
+
+  // Wait for serial to initialize.
+  while(!Serial) { }
+
+  Serial.println("Device Started");
+  Serial.println("-------------------------------------");
+  Serial.println("Running DHT!");
+  Serial.println("-------------------------------------");
+
+}
+
+int timeSinceLastRead = 0;
+void loop() {
+  
+  // Report every 2 seconds.
+  Blynk.run();
+  
+
+  if(timeSinceLastRead > 5000) {
+    if (WiFi.status() == WL_CONNECTED) { //Check WiFi connection status
+ 
+    HTTPClient http;  //Declare an object of class HTTPClient
+ 
+    http.begin(endpoint+key+metrica);  //Specify request destination
+    int httpCode = http.GET();                                                                  //Send the request
+ 
+    if (httpCode > 0) { //Check the returning code
+ 
+      String payload = http.getString();   //Get the request response payload
+
+      //Serial.println(payload);                     //Print the response payload    
+      http.end();   //Close connection
+      //StaticJsonBuffer<500> jsonBuffer;
+      const size_t bufferSize = JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(1) + 2*JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4) + JSON_OBJECT_SIZE(5) + JSON_OBJECT_SIZE(6) + JSON_OBJECT_SIZE(12) + 390;
+      DynamicJsonBuffer jsonBuffer(bufferSize);
+      JsonObject& root = jsonBuffer.parseObject(payload);
+      //String code = root["main"]["temp"];
+      //root.prettyPrintTo(Serial);
+      float coord_lon = root["coord"]["lon"];
+      float main_temp = root["main"]["temp"];
+      Blynk.virtualWrite(5, main_temp);
+      float wind_speed = root["wind"]["speed"];
+      Blynk.virtualWrite(6, wind_speed);
+      //Serial.println(String(root));
+      Serial.println(main_temp);
+      String code = root["weather"][0]["description"];
+      //Serial.println(code);
+    }
+ 
+
+ 
+    }
+    // Reading temperature or humidity takes about 250 milliseconds!
+    // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+    float h = dht.readHumidity();
+    Serial.println(h);
+    if (isnan(h)) {
+
+    }
+    else
+    {
+      Blynk.virtualWrite(3, h);
+    }
+
+    // Read temperature as Celsius (the default)
+    float t = dht.readTemperature();
+    if (isnan(t)) {
+
+    }
+    else
+    {
+      Blynk.virtualWrite(4, t);
+      }
+    
+    // Read temperature as Fahrenheit (isFahrenheit = true)
+    float f = dht.readTemperature(true);
+
+    // Check if any reads failed and exit early (to try again).
+    if (isnan(h) || isnan(t) || isnan(f)) {
+      Serial.println("Failed to read from DHT sensor!");
+      timeSinceLastRead = 0;
+      return;
+    }
+    if ((WiFi.status() == WL_CONNECTED)) { //Check the current connection status
+ 
+    // Compute heat index in Fahrenheit (the default)
+    float hif = dht.computeHeatIndex(f, h);
+    // Compute heat index in Celsius (isFahreheit = false)
+    float hic = dht.computeHeatIndex(t, h, false);
+
+    timeSinceLastRead = 0;
+  }
+
+}
+  delay(100);
+  timeSinceLastRead += 100;
+}
